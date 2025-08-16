@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dope 3D Towers of Hanoi</title>
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; background: radial-gradient(1200px 800px at 70% 20%, #252b3a, #0e1117); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+    #ui { position: fixed; top: 12px; left: 12px; background: rgba(14, 17, 23, 0.7); color: #e6edf3; padding: 12px 14px; border-radius: 10px; backdrop-filter: blur(8px); box-shadow: 0 4px 18px rgba(0,0,0,0.35); }
+    #ui h1 { margin: 0 0 8px 0; font-size: 16px; font-weight: 700; letter-spacing: .3px; color: #a8c7fa; }
+    #ui .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+    #ui label { font-size: 12px; color: #b6c2cf; }
+    #ui input[type="number"] { width: 60px; padding: 4px 6px; border-radius: 6px; background: #0b0e14; border: 1px solid #2b3240; color: #e6edf3; }
+    #ui input[type="range"] { width: 140px; }
+    #ui button { padding: 6px 10px; border-radius: 8px; border: 1px solid #2b3240; background: linear-gradient(180deg, #1e2533, #151b26); color: #e6edf3; cursor: pointer; transition: transform .08s ease, background .2s ease; }
+    #ui button:hover { transform: translateY(-1px); background: linear-gradient(180deg, #2a3243, #161e2b); }
+    #ui .hint { font-size: 11px; color: #8aa2b8; margin-top: 6px; }
+    #notif { position: fixed; top: 12px; right: 12px; padding: 8px 12px; background: rgba(24, 160, 251, 0.12); border: 1px solid rgba(24,160,251,.35); color: #cbe7ff; border-radius: 10px; font-size: 12px; display: none; }
+    canvas { display: block; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.161.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="ui">
+    <h1>3D Towers of Hanoi</h1>
+    <div class="row">
+      <label for="discCount">Discs</label>
+      <input id="discCount" type="number" min="3" max="12" step="1" value="5" />
+      <button id="resetBtn">Reset</button>
+    </div>
+    <div class="row">
+      <button id="solveBtn">Auto-Solve</button>
+      <button id="pauseBtn" disabled>Pause</button>
+      <button id="resumeBtn" disabled>Resume</button>
+    </div>
+    <div class="row">
+      <label for="speed">Speed</label>
+      <input id="speed" type="range" min="0.2" max="3" value="1" step="0.1" />
+      <span id="speedVal">1.0x</span>
+    </div>
+    <div class="hint">Tip: Click a top disc to auto-hop. Drag to choose a peg. Orbit/zoom with mouse.</div>
+  </div>
+  <div id="notif"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'https://unpkg.com/three@0.161.0/examples/jsm/controls/OrbitControls.js';
+
+    const ui = {
+      discCount: document.getElementById('discCount'),
+      resetBtn: document.getElementById('resetBtn'),
+      solveBtn: document.getElementById('solveBtn'),
+      pauseBtn: document.getElementById('pauseBtn'),
+      resumeBtn: document.getElementById('resumeBtn'),
+      speed: document.getElementById('speed'),
+      speedVal: document.getElementById('speedVal'),
+      notif: document.getElementById('notif'),
+    };
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.9;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+    renderer.domElement.style.touchAction = 'none';
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x0e1117, 200, 800);
+
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 500);
+    camera.position.set(20, 22, 26);
+    scene.add(camera);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 10;
+    controls.maxDistance = 120;
+    controls.maxPolarAngle = Math.PI * 0.49;
+
+    const hemisphereLight = new THREE.HemisphereLight(0xaad1ff, 0x1a2230, 1.3);
+    scene.add(hemisphereLight);
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambient);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
+    dirLight.position.set(18, 28, 18);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    dirLight.shadow.camera.left = -40;
+    dirLight.shadow.camera.right = 40;
+    dirLight.shadow.camera.top = 40;
+    dirLight.shadow.camera.bottom = -40;
+    scene.add(dirLight);
+
+    const rimLight = new THREE.DirectionalLight(0x88aaff, 0.9);
+    rimLight.position.set(-22, 18, -16);
+    scene.add(rimLight);
+
+    const fillPoint = new THREE.PointLight(0x66ccff, 1.2, 160, 1.8);
+    fillPoint.position.set(0, 16, 10);
+    scene.add(fillPoint);
+
+    const fillPoint2 = new THREE.PointLight(0xffa366, 0.9, 160, 1.8);
+    fillPoint2.position.set(0, 14, -12);
+    scene.add(fillPoint2);
+
+    const ground = new THREE.Mesh(
+      new THREE.CircleGeometry(80, 64),
+      new THREE.MeshStandardMaterial({ color: 0x15243a, metalness: 0.25, roughness: 0.55 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const grid = new THREE.GridHelper(160, 80, 0x31415a, 0x1f2a44);
+    grid.material.opacity = 0.2; grid.material.transparent = true;
+    scene.add(grid);
+
+    const board = new THREE.Mesh(
+      new THREE.BoxGeometry(30, 0.8, 8),
+      new THREE.MeshStandardMaterial({ color: 0x21314d, metalness: 0.45, roughness: 0.4 })
+    );
+    board.position.y = 0.4;
+    board.castShadow = true; board.receiveShadow = true;
+    scene.add(board);
+
+    const pegMaterial = new THREE.MeshStandardMaterial({ color: 0x4aa8ff, metalness: 0.8, roughness: 0.22, emissive: 0x113366, emissiveIntensity: 0.28 });
+    const pegGeometry = new THREE.CylinderGeometry(0.25, 0.25, 8, 24);
+    const pegPositions = [-10, 0, 10];
+    const pegs = [];
+    for (let i = 0; i < 3; i++) {
+      const peg = new THREE.Mesh(pegGeometry, pegMaterial.clone());
+      peg.position.set(pegPositions[i], 4.4, 0);
+      peg.castShadow = true; peg.receiveShadow = true;
+      peg.userData.pegIndex = i;
+      scene.add(peg);
+      pegs.push(peg);
+    }
+
+    const baseRim = new THREE.Mesh(
+      new THREE.CylinderGeometry(3.8, 3.8, 0.4, 48),
+      new THREE.MeshStandardMaterial({ color: 0x223555, metalness: 0.55, roughness: 0.4 })
+    );
+    baseRim.position.set(pegPositions[0], 0.2, 0); baseRim.receiveShadow = true; scene.add(baseRim);
+    const baseRim2 = baseRim.clone(); baseRim2.position.x = pegPositions[1]; scene.add(baseRim2);
+    const baseRim3 = baseRim.clone(); baseRim3.position.x = pegPositions[2]; scene.add(baseRim3);
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const selectable = new Set();
+    const clickablePegs = new Set(pegs);
+
+    let stacks = [[], [], []]; // arrays of disc ids (top is the last element)
+    const discMeshes = new Map(); // id -> mesh
+    const discSizes = new Map(); // id -> integer size (higher = larger)
+    const pegByDiscId = new Map(); // id -> peg index
+    let numDiscs = clampInt(parseInt(ui.discCount.value, 10), 3, 12);
+
+    // Animation/move state
+    let selectedDiscId = null;
+    let isAnimating = false;
+    let currentTween = null;
+    let isDragging = false;
+    let dragDiscId = null;
+    let dragFromPeg = null;
+    let dragLiftY = 10;
+    let clickCandidateDiscId = null;
+    let clickCandidateFromPeg = null;
+    let pointerDownXY = { x: 0, y: 0 };
+    let autoQueue = [];
+    let autoRunning = false;
+    let paused = false;
+    let speedMultiplier = parseFloat(ui.speed.value);
+    const savedControlsState = { rotate: true, pan: true, zoom: true };
+
+    function clampInt(v, min, max) { return Math.max(min, Math.min(max, Math.floor(v))); }
+
+    function showNotif(text, timeout = 1200) {
+      ui.notif.textContent = text;
+      ui.notif.style.display = 'block';
+      clearTimeout(ui.notif._t);
+      ui.notif._t = setTimeout(() => ui.notif.style.display = 'none', timeout);
+    }
+
+    function createDiscs(count) {
+      // Clear existing
+      for (const [, mesh] of discMeshes) {
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        scene.remove(mesh);
+      }
+      discMeshes.clear();
+      discSizes.clear();
+      stacks = [[], [], []];
+      pegByDiscId.clear();
+
+      const minRadius = 1.2;
+      const maxRadius = 4.0;
+      const height = 0.6;
+      const radiusStep = (maxRadius - minRadius) / Math.max(1, count - 1);
+
+      for (let i = 0; i < count; i++) {
+        const id = i; // 0 smallest
+        const r = minRadius + (count - 1 - i) * radiusStep; // largest at bottom
+        const geom = new THREE.CylinderGeometry(r, r, height, 48, 1, false);
+        const hue = 0.55 + (i / Math.max(1, count - 1)) * 0.4; // vibrant blue -> magenta
+        const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(hue % 1, 1.0, 0.62), metalness: 0.88, roughness: 0.16, emissive: new THREE.Color().setHSL(hue % 1, 0.65, 0.35), emissiveIntensity: 0.35 });
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.castShadow = true; mesh.receiveShadow = true;
+        mesh.userData = { id, radius: r, height };
+        scene.add(mesh);
+        discMeshes.set(id, mesh);
+        discSizes.set(id, count - i); // highest size at bottom (i=0)
+        selectable.add(mesh);
+        stacks[0].push(id);
+        pegByDiscId.set(id, 0);
+      }
+      layoutStacksInstant();
+      selectedDiscId = null;
+    }
+
+    function layoutStacksInstant() {
+      for (let pegIndex = 0; pegIndex < 3; pegIndex++) {
+        const stack = stacks[pegIndex];
+        for (let i = 0; i < stack.length; i++) {
+          const id = stack[i];
+          const mesh = discMeshes.get(id);
+          const y = 0.8 + (i * mesh.userData.height);
+          mesh.position.set(pegPositions[pegIndex], y + mesh.userData.height / 2, 0);
+        }
+      }
+    }
+
+    function isTopDisc(id) {
+      const pegIndex = pegByDiscId.get(id);
+      if (pegIndex == null) return false;
+      return getTopDiscId(pegIndex) === id;
+    }
+
+    function findDiscPeg(id) { return pegByDiscId.has(id) ? pegByDiscId.get(id) : -1; }
+
+    function getTopDiscId(pegIndex) {
+      const s = stacks[pegIndex];
+      return s.length ? s[s.length - 1] : null;
+    }
+
+    function canMoveTo(pegIndex, discId) {
+      const stack = stacks[pegIndex];
+      if (stack.length === 0) return true;
+      const movingSize = discSizes.get(discId);
+      const topId = stack[stack.length - 1];
+      const topSize = discSizes.get(topId);
+      if (movingSize == null || topSize == null) return false;
+      return movingSize < topSize;
+    }
+
+    function animateDiscMove(discId, fromPeg, toPeg, onComplete) {
+      const mesh = discMeshes.get(discId);
+      if (!mesh) return;
+      const start = mesh.position.clone();
+      const endY = 0.8 + (stacks[toPeg].length * mesh.userData.height) + mesh.userData.height / 2;
+      const end = new THREE.Vector3(pegPositions[toPeg], endY, 0);
+      const liftY = Math.max(start.y, 7.5 + stacks[fromPeg].length * 0.2, 8.5);
+      const acrossX = pegPositions[toPeg];
+      const phases = [
+        { from: start.clone(), to: new THREE.Vector3(start.x, liftY, start.z) },
+        { from: new THREE.Vector3(start.x, liftY, start.z), to: new THREE.Vector3(acrossX, liftY, start.z) },
+        { from: new THREE.Vector3(acrossX, liftY, start.z), to: end.clone() },
+      ];
+      let phaseIndex = 0;
+      let t = 0;
+      isAnimating = true;
+
+      const baseDuration = 280; // ms per phase at 1x
+      const duration = () => baseDuration / speedMultiplier;
+
+      function stepPhase(dt) {
+        if (paused) return; // freeze
+        if (phaseIndex >= phases.length) {
+          isAnimating = false;
+          onComplete && onComplete();
+          return;
+        }
+        t += dt / duration();
+        const p = phases[phaseIndex];
+        const k = easeInOutCubic(Math.min(1, t));
+        mesh.position.lerpVectors(p.from, p.to, k);
+        if (t >= 1) { phaseIndex++; t = 0; }
+      }
+
+      currentTween = { stepPhase };
+    }
+
+    function easeInOutCubic(x) {
+      return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+    }
+
+    function performMove(fromPeg, toPeg, after) {
+      const discId = stacks[fromPeg][stacks[fromPeg].length - 1];
+      stacks[fromPeg].pop();
+      animateDiscMove(discId, fromPeg, toPeg, () => {
+        stacks[toPeg].push(discId);
+        pegByDiscId.set(discId, toPeg);
+        selectedDiscId = null;
+        after && after();
+      });
+    }
+
+    function generateAutoMoves(n, from = 0, to = 2, aux = 1, out = []) {
+      if (n === 1) { out.push([from, to]); return out; }
+      generateAutoMoves(n - 1, from, aux, to, out);
+      out.push([from, to]);
+      generateAutoMoves(n - 1, aux, to, from, out);
+      return out;
+    }
+
+    function startAutoSolve() {
+      if (autoRunning || isAnimating) return;
+      autoQueue = generateAutoMoves(numDiscs);
+      autoRunning = true;
+      ui.pauseBtn.disabled = false;
+      ui.resumeBtn.disabled = true;
+      ui.solveBtn.disabled = true;
+      ui.resetBtn.disabled = true;
+      showNotif(`Solving in ${autoQueue.length} moves…`);
+    }
+
+    function stopAutoSolve() {
+      autoQueue = [];
+      autoRunning = false;
+      ui.pauseBtn.disabled = true;
+      ui.resumeBtn.disabled = true;
+      ui.solveBtn.disabled = false;
+      ui.resetBtn.disabled = false;
+    }
+
+    function stepAuto(dt) {
+      if (!autoRunning || paused) return;
+      if (!isAnimating && autoQueue.length) {
+        const [from, to] = autoQueue.shift();
+        performMove(from, to, () => {
+          if (autoQueue.length === 0) {
+            stopAutoSolve();
+            showNotif('Solved!');
+          }
+        });
+      }
+    }
+
+    function resetGame() {
+      selectedDiscId = null;
+      isAnimating = false; currentTween = null;
+      stopAutoSolve(); paused = false;
+      createDiscs(numDiscs);
+    }
+
+    // Input handling
+    function onPointerDown(event) {
+      if (autoRunning) return;
+      event.preventDefault();
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects([...selectable, ...clickablePegs], false);
+      if (!intersects.length) return;
+      const hit = intersects[0].object;
+
+      if (selectable.has(hit)) {
+        const id = hit.userData.id;
+        if (!isTopDisc(id)) { showNotif('Only the top disc can be moved'); return; }
+        // stage for click or drag
+        clickCandidateDiscId = id;
+        clickCandidateFromPeg = findDiscPeg(id);
+        pointerDownXY = { x: event.clientX, y: event.clientY };
+        selectedDiscId = id;
+        highlightSelection(id);
+        updatePegHighlights(id);
+        return;
+      }
+
+      if (clickablePegs.has(hit) && selectedDiscId !== null && !isAnimating && !isDragging) {
+        const toPeg = hit.userData.pegIndex;
+        const fromPeg = findDiscPeg(selectedDiscId);
+        if (fromPeg === -1 || fromPeg === toPeg) return;
+        if (!canMoveTo(toPeg, selectedDiscId)) { showNotif('Illegal move'); return; }
+        performMove(fromPeg, toPeg);
+      }
+    }
+
+    function onPointerMove(event) {
+      if (!isDragging || dragDiscId === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -dragLiftY);
+      const hitPoint = new THREE.Vector3();
+      raycaster.ray.intersectPlane(plane, hitPoint);
+      const mesh = discMeshes.get(dragDiscId);
+      const minX = pegPositions[0] - 3;
+      const maxX = pegPositions[2] + 3;
+      mesh.position.set(Math.max(minX, Math.min(maxX, hitPoint.x)), dragLiftY, 0);
+      updatePegHighlights(dragDiscId, mesh.position.x);
+    }
+
+    // Also detect transition from click to drag based on movement threshold
+    renderer.domElement.addEventListener('pointermove', (event) => {
+      if (clickCandidateDiscId === null || isDragging) return;
+      const dx = event.clientX - pointerDownXY.x;
+      const dy = event.clientY - pointerDownXY.y;
+      if (Math.hypot(dx, dy) > 6) {
+        // start drag now
+        dragDiscId = clickCandidateDiscId;
+        dragFromPeg = clickCandidateFromPeg;
+        clickCandidateDiscId = null;
+        clickCandidateFromPeg = null;
+        event.stopPropagation();
+        savedControlsState.rotate = controls.enableRotate;
+        savedControlsState.pan = controls.enablePan;
+        savedControlsState.zoom = controls.enableZoom;
+        controls.enableRotate = false;
+        controls.enablePan = false;
+        controls.enableZoom = false;
+        controls.enabled = false;
+        renderer.domElement.style.cursor = 'grabbing';
+        const mesh = discMeshes.get(dragDiscId);
+        dragLiftY = Math.max(8.5, 7.5 + stacks[dragFromPeg].length * 0.2);
+        mesh.position.y = dragLiftY;
+        isDragging = true;
+      }
+    });
+
+    function animateToPosition(mesh, toVec3, durationMs, onComplete) {
+      let t = 0;
+      const from = mesh.position.clone();
+      const duration = Math.max(60, durationMs / speedMultiplier);
+      currentTween = {
+        stepPhase: (dt) => {
+          if (paused) return;
+          t += dt / duration;
+          const k = easeInOutCubic(Math.min(1, t));
+          mesh.position.lerpVectors(from, toVec3, k);
+          if (t >= 1) { currentTween = null; isAnimating = false; onComplete && onComplete(); }
+        }
+      };
+      isAnimating = true;
+    }
+
+    function onPointerUp() {
+      if (!isDragging || dragDiscId === null) {
+        // not dragging: ensure staged click selection is valid top disc
+        if (clickCandidateDiscId !== null) {
+          if (!isTopDisc(clickCandidateDiscId)) { showNotif('Only the top disc can be moved'); clickCandidateDiscId = null; clickCandidateFromPeg = null; clearPegHighlights(); clearHighlight(); }
+        }
+        return;
+      }
+      const mesh = discMeshes.get(dragDiscId);
+      // choose nearest peg by x
+      let nearestPeg = 0;
+      let best = Infinity;
+      for (let i = 0; i < 3; i++) {
+        const d = Math.abs(mesh.position.x - pegPositions[i]);
+        if (d < best) { best = d; nearestPeg = i; }
+      }
+      const fromPeg = pegByDiscId.get(dragDiscId);
+      const toPeg = nearestPeg;
+      const discId = dragDiscId;
+
+      const finish = () => {
+        isDragging = false; dragDiscId = null; dragFromPeg = null;
+        controls.enableRotate = savedControlsState.rotate;
+        controls.enablePan = savedControlsState.pan;
+        controls.enableZoom = savedControlsState.zoom;
+        controls.enabled = true;
+        renderer.domElement.style.cursor = 'auto';
+        selectedDiscId = null; clearHighlight(); clearPegHighlights();
+      };
+
+      if (toPeg === fromPeg) {
+        const idx = stacks[fromPeg].length - 1;
+        const h = mesh.userData.height;
+        const endY = 0.8 + (idx * h) + h / 2;
+        animateToPosition(mesh, new THREE.Vector3(pegPositions[fromPeg], endY, 0), 220, finish);
+        return;
+      }
+      if (!canMoveTo(toPeg, discId)) {
+        showNotif('Illegal move');
+        const idx = stacks[fromPeg].length - 1;
+        const h = mesh.userData.height;
+        const endY = 0.8 + (idx * h) + h / 2;
+        animateToPosition(mesh, new THREE.Vector3(pegPositions[fromPeg], endY, 0), 260, finish);
+        return;
+      }
+      // commit move
+      stacks[fromPeg].pop();
+      const h = mesh.userData.height;
+      const targetY = 0.8 + (stacks[toPeg].length * h) + h / 2;
+      const target = new THREE.Vector3(pegPositions[toPeg], targetY, 0);
+      animateToPosition(mesh, target, 260, () => {
+        stacks[toPeg].push(discId);
+        pegByDiscId.set(discId, toPeg);
+        finish();
+      });
+    }
+
+    // Click-to-hop behavior
+    renderer.domElement.addEventListener('pointerup', (event) => {
+      if (isDragging) return; // handled in onPointerUp
+      if (clickCandidateDiscId === null) return;
+      const discId = clickCandidateDiscId;
+      const fromPeg = pegByDiscId.get(discId);
+      clickCandidateDiscId = null; clickCandidateFromPeg = null;
+      clearPegHighlights();
+      // determine next legal peg clockwise (to the right)
+      const order = [(fromPeg + 1) % 3, (fromPeg + 2) % 3];
+      let toPeg = -1;
+      for (const p of order) { if (canMoveTo(p, discId)) { toPeg = p; break; } }
+      if (toPeg === -1) { showNotif('No legal move'); selectedDiscId = null; clearHighlight(); return; }
+      if (isAnimating) return;
+      performMove(fromPeg, toPeg, () => { clearHighlight(); });
+    });
+
+    function clearPegHighlights() {
+      for (let i = 0; i < pegs.length; i++) {
+        pegs[i].material.emissive.setHex(0x000000);
+        pegs[i].scale.set(1, 1, 1);
+      }
+    }
+
+    function updatePegHighlights(discId, tentativeX = null) {
+      for (let i = 0; i < pegs.length; i++) {
+        const allowed = canMoveTo(i, discId);
+        const peg = pegs[i];
+        if (!allowed) {
+          peg.material.emissive.setHex(0x330000);
+          peg.scale.set(1, 1, 1);
+          continue;
+        }
+        peg.material.emissive.setHex(0x113366);
+        peg.scale.set(1.05, 1.05, 1.05);
+      }
+      if (tentativeX !== null) {
+        // emphasize nearest
+        let nearestPeg = 0; let best = Infinity;
+        for (let i = 0; i < 3; i++) { const d = Math.abs(tentativeX - pegPositions[i]); if (d < best) { best = d; nearestPeg = i; } }
+        if (canMoveTo(nearestPeg, discId)) {
+          pegs[nearestPeg].material.emissive.setHex(0x1166cc);
+          pegs[nearestPeg].scale.set(1.12, 1.12, 1.12);
+        }
+      }
+    }
+
+    function highlightSelection(id) {
+      for (const [, mesh] of discMeshes) { mesh.material.emissive = new THREE.Color(0x000000); }
+      const mesh = discMeshes.get(id);
+      if (mesh) mesh.material.emissive = new THREE.Color(0x2244ff);
+    }
+
+    function clearHighlight() {
+      for (const [, mesh] of discMeshes) { mesh.material.emissive = new THREE.Color(0x000000); }
+    }
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // UI events
+    ui.resetBtn.addEventListener('click', () => { resetGame(); });
+    ui.discCount.addEventListener('change', () => {
+      numDiscs = clampInt(parseInt(ui.discCount.value, 10), 3, 12);
+      ui.discCount.value = String(numDiscs);
+      resetGame();
+    });
+    ui.solveBtn.addEventListener('click', () => startAutoSolve());
+    ui.pauseBtn.addEventListener('click', () => { if (autoRunning) { paused = true; ui.pauseBtn.disabled = true; ui.resumeBtn.disabled = false; showNotif('Paused'); } });
+    ui.resumeBtn.addEventListener('click', () => { if (autoRunning) { paused = false; ui.pauseBtn.disabled = false; ui.resumeBtn.disabled = true; showNotif('Resumed'); } });
+    ui.speed.addEventListener('input', () => { speedMultiplier = parseFloat(ui.speed.value); ui.speedVal.textContent = `${speedMultiplier.toFixed(1)}x`; });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Ticker
+    let lastTime = performance.now();
+    function tick(now) {
+      const dt = Math.min(32, now - lastTime); // clamp
+      lastTime = now;
+      controls.update();
+
+      if (currentTween && isAnimating) {
+        currentTween.stepPhase(dt);
+      }
+      stepAuto(dt);
+      if (!isAnimating) { clearHighlight(); }
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    }
+
+    // Boot
+    resetGame();
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
+
+
